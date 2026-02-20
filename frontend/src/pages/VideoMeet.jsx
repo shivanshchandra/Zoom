@@ -34,9 +34,9 @@ export default function VideoMeetComponent() {
 
     let [audioAvailable, setAudioAvailable] = useState(true);
 
-    let [video, setVideo] = useState([]);
+    let [video, setVideo] = useState(true);
 
-    let [audio, setAudio] = useState();
+    let [audio, setAudio] = useState(true);
 
     let [screen, setScreen] = useState();
 
@@ -64,11 +64,30 @@ export default function VideoMeetComponent() {
 
     // }
 
-    useEffect(() => {
-        console.log("HELLO")
-        getPermissions();
+    
+const toggleMic = () => {
+  if (!window.localStream) return;
 
-    })
+  const audioTrack = window.localStream.getAudioTracks()[0];
+  if (!audioTrack) return;
+
+  audioTrack.enabled = !audioTrack.enabled;
+  setAudio(audioTrack.enabled);
+};
+
+const toggleCamera = () => {
+  if (!window.localStream) return;
+
+  const videoTrack = window.localStream.getVideoTracks()[0];
+  if (!videoTrack) return;
+
+  videoTrack.enabled = !videoTrack.enabled;
+  setVideo(videoTrack.enabled);
+};
+
+    useEffect(() => {
+  getPermissions();
+}, []);
 
     let getDislayMedia = () => {
         if (screen) {
@@ -381,15 +400,9 @@ export default function VideoMeetComponent() {
         let stream = canvas.captureStream()
         return Object.assign(stream.getVideoTracks()[0], { enabled: false })
     }
+let handleVideo = () => toggleCamera();
 
-    let handleVideo = () => {
-        setVideo(!video);
-        // getUserMedia();
-    }
-    let handleAudio = () => {
-        setAudio(!audio)
-        // getUserMedia();
-    }
+let handleAudio = () => toggleMic();
 
     useEffect(() => {
         if (screen !== undefined) {

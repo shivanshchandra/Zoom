@@ -5,15 +5,21 @@ import "../App.css";
 import { Button, IconButton, TextField } from '@mui/material';
 import RestoreIcon from '@mui/icons-material/Restore';
 import { AuthContext } from '../contexts/AuthContext';
+import { generateMeetingId } from "../utils/generateMeetingId";
 
 function HomeComponent() {
+
+    const handleGenerateMeeting = () => {
+        const code = generateMeetingId(10);
+        setMeetingCode(code);
+    };
 
 
     let navigate = useNavigate();
     const [meetingCode, setMeetingCode] = useState("");
 
 
-    const {addToUserHistory} = useContext(AuthContext);
+    const { addToUserHistory } = useContext(AuthContext);
     let handleJoinVideoCall = async () => {
         await addToUserHistory(meetingCode)
         navigate(`/${meetingCode}`)
@@ -58,8 +64,24 @@ function HomeComponent() {
 
                         <div style={{ display: 'flex', gap: "10px" }}>
 
-                            <TextField onChange={e => setMeetingCode(e.target.value)} id="outlined-basic" label="Meeting Code" variant="outlined" />
-                            <Button onClick={handleJoinVideoCall} variant='contained'>Join</Button>
+                            <TextField
+                                value={meetingCode}
+                                onChange={(e) => setMeetingCode(e.target.value)}
+                                id="outlined-basic"
+                                label="Meeting Code"
+                                variant="outlined"
+                            />
+                            <Button onClick={handleGenerateMeeting} variant="outlined">
+                                Generate
+                            </Button>
+
+                            <Button
+                                onClick={handleJoinVideoCall}
+                                variant="contained"
+                                disabled={!meetingCode.trim()}
+                            >
+                                Join
+                            </Button>
 
                         </div>
                     </div>

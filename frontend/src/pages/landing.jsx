@@ -1,6 +1,8 @@
 import React from 'react'
 import "../App.css"
 import { Link, useNavigate } from 'react-router-dom'
+import { generateMeetingId } from "../utils/generateMeetingId";
+
 export default function LandingPage() {
 
 
@@ -14,8 +16,11 @@ export default function LandingPage() {
                 </div>
                 <div className='navlist'>
                     <p onClick={() => {
-                        router("/aljk23")
-                    }}>Join as Guest</p>
+                        const code = generateMeetingId(10);
+                        router(`/${code}`);
+                    }}>
+                        Join as Guest
+                    </p>
                     <p onClick={() => {
                         router("/auth")
 

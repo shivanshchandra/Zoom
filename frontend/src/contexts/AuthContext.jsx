@@ -22,14 +22,13 @@ export const AuthProvider = ({ children }) => {
 
     const router = useNavigate();
 
-    const handleRegister = async (name, username, password) => {
+    const handleRegister = async (name, email, password) => {
         try {
             let request = await client.post("/register", {
-                name: name,
-                username: username,
-                password: password
-            })
-
+                name,
+                email,
+                password,
+            });
 
             if (request.status === httpStatus.CREATED) {
                 return request.data.message;
@@ -37,26 +36,23 @@ export const AuthProvider = ({ children }) => {
         } catch (err) {
             throw err;
         }
-    }
+    };
 
-    const handleLogin = async (username, password) => {
+    const handleLogin = async (email, password) => {
         try {
             let request = await client.post("/login", {
-                username: username,
-                password: password
+                email,
+                password,
             });
-
-            console.log(username, password)
-            console.log(request.data)
 
             if (request.status === httpStatus.OK) {
                 localStorage.setItem("token", request.data.token);
-                router("/home")
+                router("/home");
             }
         } catch (err) {
             throw err;
         }
-    }
+    };
 
     const getHistoryOfUser = async () => {
         try {
@@ -67,7 +63,7 @@ export const AuthProvider = ({ children }) => {
             });
             return request.data
         } catch
-         (err) {
+        (err) {
             throw err;
         }
     }

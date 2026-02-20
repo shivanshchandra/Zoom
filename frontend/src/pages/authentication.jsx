@@ -23,9 +23,9 @@ const defaultTheme = createTheme();
 
 export default function Authentication() {
 
-    
 
-    const [username, setUsername] = React.useState();
+    const isValidEmail = (value) => /^\S+@\S+\.\S+$/.test(value);
+    const [email, setEmail] = React.useState("");
     const [password, setPassword] = React.useState();
     const [name, setName] = React.useState();
     const [error, setError] = React.useState();
@@ -43,19 +43,24 @@ export default function Authentication() {
         try {
             if (formState === 0) {
 
-                let result = await handleLogin(username, password)
+                let result = await handleLogin(email, password);
 
 
             }
             if (formState === 1) {
-                let result = await handleRegister(name, username, password);
+                if (!isValidEmail(email)) {
+                    setError("Please enter a valid email (example@domain.com)");
+                    return;
+                }
+                let result = await handleRegister(name, email, password);
                 console.log(result);
-                setUsername("");
                 setMessage(result);
                 setOpen(true);
-                setError("")
-                setFormState(0)
-                setPassword("")
+                setError("");
+                setFormState(0);        // go to Sign In
+                // keep email prefilled for login
+                // (optional) keep password too; if you want clear password then setPassword("")
+                // setPassword("");
             }
         } catch (err) {
 
@@ -109,29 +114,30 @@ export default function Authentication() {
                         </div>
 
                         <Box component="form" noValidate sx={{ mt: 1 }}>
-                            {formState === 1 ? <TextField
-                                margin="normal"
-                                required
-                                fullWidth
-                                id="username"
-                                label="Full Name"
-                                name="username"
-                                value={name}
-                                autoFocus
-                                onChange={(e) => setName(e.target.value)}
-                            /> : <></>}
+                            {formState === 1 ? (
+                                <TextField
+                                    margin="normal"
+                                    required
+                                    fullWidth
+                                    id="name"
+                                    label="Full Name"
+                                    name="name"
+                                    value={name}
+                                    autoFocus
+                                    onChange={(e) => setName(e.target.value)}
+                                />
+                            ) : null}
 
                             <TextField
                                 margin="normal"
                                 required
                                 fullWidth
-                                id="username"
-                                label="Username"
-                                name="username"
-                                value={username}
+                                id="email"
+                                label="Email"
+                                name="email"
+                                value={email}
                                 autoFocus
-                                onChange={(e) => setUsername(e.target.value)}
-
+                                onChange={(e) => setEmail(e.target.value)}
                             />
                             <TextField
                                 margin="normal"
