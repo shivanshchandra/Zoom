@@ -11,6 +11,7 @@ import StopScreenShareIcon from "@mui/icons-material/StopScreenShare";
 import ChatIcon from "@mui/icons-material/Chat";
 import styles from "../styles/videoComponent.module.css";
 import server from "../environment";
+import MeetChatBox from "../components/MeetChatBox";
 
 const server_url = server;
 
@@ -52,6 +53,7 @@ export default function VideoMeetComponent() {
   const [videos, setVideos] = useState([]); // {socketId, stream}
   const [showModal, setShowModal] = useState(true);
 
+  // UPDATED: message shape contains sender/data/socketId/ts
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState("");
   const [newMessages, setNewMessages] = useState(0);
@@ -68,7 +70,10 @@ export default function VideoMeetComponent() {
       setScreenAvailable(!!navigator.mediaDevices.getDisplayMedia);
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
         cameraStreamRef.current = stream;
 
         // apply toggles
@@ -88,10 +93,20 @@ export default function VideoMeetComponent() {
     init();
 
     return () => {
-      try { cameraStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
-      try { screenStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
-      try { socketRef.current?.disconnect(); } catch {}
-      pcsRef.current.forEach((pc) => { try { pc.close(); } catch {} });
+      try {
+        cameraStreamRef.current?.getTracks()?.forEach((t) => t.stop());
+      } catch {}
+      try {
+        screenStreamRef.current?.getTracks()?.forEach((t) => t.stop());
+      } catch {}
+      try {
+        socketRef.current?.disconnect();
+      } catch {}
+      pcsRef.current.forEach((pc) => {
+        try {
+          pc.close();
+        } catch {}
+      });
       pcsRef.current.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,15 +212,22 @@ export default function VideoMeetComponent() {
       myIdRef.current = socketRef.current.id;
       socketRef.current.emit("join-call", roomKey);
 
+      // ✅ UPDATED chat listener (store socketId + timestamp)
       socketRef.current.on("chat-message", (data, sender, socketIdSender) => {
-        setMessages((prev) => [...prev, { sender, data }]);
+        setMessages((prev) => [
+          ...prev,
+          { sender, data, socketId: socketIdSender, ts: Date.now() },
+        ]);
+
         if (socketIdSender !== myIdRef.current) setNewMessages((n) => n + 1);
       });
 
       socketRef.current.on("user-left", (id) => {
         const pc = pcsRef.current.get(id);
         if (pc) {
-          try { pc.close(); } catch {}
+          try {
+            pc.close();
+          } catch {}
           pcsRef.current.delete(id);
         }
         removeRemoteVideo(id);
@@ -222,7 +244,11 @@ export default function VideoMeetComponent() {
         if (joinedId === myIdRef.current) {
           for (const id of clients) {
             if (id === myIdRef.current) continue;
-            try { await sendOffer(id); } catch (e) { console.log(e); }
+            try {
+              await sendOffer(id);
+            } catch (e) {
+              console.log(e);
+            }
           }
         }
       });
@@ -252,7 +278,10 @@ export default function VideoMeetComponent() {
     if (!navigator.mediaDevices.getDisplayMedia) return;
 
     try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
       screenStreamRef.current = screenStream;
       setScreenOn(true);
 
@@ -276,7 +305,9 @@ export default function VideoMeetComponent() {
   };
 
   const stopScreenShare = async () => {
-    try { screenStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
+    try {
+      screenStreamRef.current?.getTracks()?.forEach((t) => t.stop());
+    } catch {}
     screenStreamRef.current = null;
     setScreenOn(false);
 
@@ -316,9 +347,15 @@ export default function VideoMeetComponent() {
   };
 
   const handleEndCall = () => {
-    try { cameraStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
-    try { screenStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
-    try { socketRef.current?.disconnect(); } catch {}
+    try {
+      cameraStreamRef.current?.getTracks()?.forEach((t) => t.stop());
+    } catch {}
+    try {
+      screenStreamRef.current?.getTracks()?.forEach((t) => t.stop());
+    } catch {}
+    try {
+      socketRef.current?.disconnect();
+    } catch {}
     window.location.href = "/";
   };
 
@@ -331,8 +368,8 @@ export default function VideoMeetComponent() {
   };
 
   const sendMessage = () => {
-    if (!message.trim()) return;
-    socketRef.current.emit("chat-message", message, username);
+    if (!message.trim() || !socketRef.current) return;
+    socketRef.current.emit("chat-message", message.trim(), username);
     setMessage("");
   };
 
@@ -366,39 +403,16 @@ export default function VideoMeetComponent() {
         </div>
       ) : (
         <div className={styles.meetVideoContainer}>
-          {showModal ? (
-            <div className={styles.chatRoom}>
-              <div className={styles.chatContainer}>
-                <h1>Chat</h1>
-
-                <div className={styles.chattingDisplay}>
-                  {messages.length ? (
-                    messages.map((item, index) => (
-                      <div style={{ marginBottom: 20 }} key={index}>
-                        <p style={{ fontWeight: "bold" }}>{item.sender}</p>
-                        <p>{item.data}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p>No Messages Yet</p>
-                  )}
-                </div>
-
-                <div className={styles.chattingArea}>
-                  <TextField
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    id="outlined-basic"
-                    label="Enter Your chat"
-                    variant="outlined"
-                  />
-                  <Button variant="contained" onClick={sendMessage}>
-                    Send
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : null}
+          {/* ✅ NEW CHAT BOX UI */}
+          <MeetChatBox
+            open={showModal}
+            onClose={() => setShowModal(false)}
+            messages={messages}
+            mySocketId={myIdRef.current}
+            message={message}
+            setMessage={setMessage}
+            onSend={sendMessage}
+          />
 
           <div className={styles.buttonContainers}>
             <IconButton onClick={toggleCamera} style={{ color: "white" }}>
@@ -419,17 +433,25 @@ export default function VideoMeetComponent() {
               </IconButton>
             ) : null}
 
-            <Badge badgeContent={newMessages} max={999} color="orange">
-              <IconButton
-                onClick={() => {
-                  setShowModal((m) => !m);
-                  setNewMessages(0);
-                }}
-                style={{ color: "white" }}
-              >
-                <ChatIcon />
-              </IconButton>
-            </Badge>
+            <Badge
+  badgeContent={!showModal ? newMessages : 0}
+  max={999}
+  color="error"
+  overlap="circular"
+>
+  <IconButton
+    onClick={() => {
+      setShowModal((m) => {
+        const next = !m;
+        if (next) setNewMessages(0);
+        return next;
+      });
+    }}
+    style={{ color: "white" }}
+  >
+    <ChatIcon />
+  </IconButton>
+</Badge>
           </div>
 
           <video className={styles.meetUserVideo} ref={meetingVideoRef} autoPlay muted playsInline />

@@ -59,3 +59,136 @@
     position: absolute;
     bottom: 0;
 }
+
+
+/* ====== Meet Chat UI (NEW) ====== */
+.meetChatOverlay {
+  position: fixed;
+  right: 20px;
+  top: 20px;
+  width: 360px;
+  height: calc(100vh - 40px);
+  z-index: 9999;
+  display: flex;
+  justify-content: flex-end;
+}
+
+
+.meetChatPanel {
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.meetChatHeader {
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.meetChatTitle {
+  font-size: 28px;
+  font-weight: 800;
+  color: #111;
+}
+
+.meetChatCloseBtn {
+  color: #111 !important;
+}
+
+.meetChatBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  background: #f7f7f7;
+}
+
+.meetChatFooter {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+}
+
+.sendBtn {
+  min-width: 90px;
+}
+
+.noMsg {
+  color: #666;
+  padding: 10px;
+}
+
+/* message alignment */
+.msgRow {
+  display: flex;
+  margin-bottom: 10px;
+}
+
+.left {
+  justify-content: flex-start;
+}
+
+.right {
+  justify-content: flex-end;
+}
+
+.msgBubble {
+  max-width: 78%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.mine {
+  background: #1f7a3f;
+  color: white;
+  border-top-right-radius: 6px;
+}
+
+.theirs {
+  background: #e9e9e9;
+  color: #111;
+  border-top-left-radius: 6px;
+}
+
+.msgMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 4px;
+}
+
+.msgSender {
+  font-weight: 700;
+}
+
+.msgTime {
+  white-space: nowrap;
+}
+
+.msgText {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* hide scrollbar but keep scroll */
+.hideScrollbar {
+  -ms-overflow-style: none; /* IE/Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.hideScrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
