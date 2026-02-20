@@ -489,25 +489,24 @@ export default function VideoMeetComponent() {
             ) : null}
 
             <Badge
-              variant={!showModal && newMessages > 0 ? "dot" : "standard"}
-              badgeContent={!showModal ? newMessages : 0}
-              max={999}
-              color="error"
-              overlap="circular"
-            >
-              <IconButton
-                onClick={() => {
-                  setShowModal((m) => {
-                    const next = !m;
-                    if (next) setNewMessages(0);
-                    return next;
-                  });
-                }}
-                style={{ color: "white" }}
-              >
-                <ChatIcon />
-              </IconButton>
-            </Badge>
+  badgeContent={!showModal ? newMessages : 0}
+  max={999}
+  color="error"
+  overlap="circular"
+>
+  <IconButton
+    onClick={() => {
+      setShowModal((m) => {
+        const next = !m;
+        if (next) setNewMessages(0);
+        return next;
+      });
+    }}
+    style={{ color: "white" }}
+  >
+    <ChatIcon />
+  </IconButton>
+</Badge>
           </div>
 
           {/* PRESENTING MODE */}
