@@ -192,3 +192,39 @@
 .hideScrollbar::-webkit-scrollbar {
   display: none; /* Chrome/Safari */
 }
+
+
+/* ===== Screen Share Stage + PiP (NEW) ===== */
+.stageArea {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 110px);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.stageVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/* ✅ PiP fixed bottom-left always */
+.pipVideo {
+  position: absolute;
+  left: 20px;
+  bottom: 20px;   /* ✅ keep it inside stage and stable */
+  width: 260px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  z-index: 50; /* ✅ ensure always above stageVideo */
+}
+
+
+.buttonContainers {
+  z-index: 99999;
+}

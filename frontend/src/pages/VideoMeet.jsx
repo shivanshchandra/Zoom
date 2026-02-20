@@ -31,7 +31,6 @@ export default function VideoMeetComponent() {
   const socketRef = useRef(null);
   const myIdRef = useRef(null);
 
-  // IMPORTANT: separate refs for lobby and meeting preview
   const lobbyVideoRef = useRef(null);
   const meetingVideoRef = useRef(null);
 
@@ -39,6 +38,9 @@ export default function VideoMeetComponent() {
 
   const cameraStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
+
+  // remember if camera was ON before starting share
+  const prevCamEnabledRef = useRef(true);
 
   const [mediaReady, setMediaReady] = useState(false);
 
@@ -50,18 +52,25 @@ export default function VideoMeetComponent() {
   const [askForUsername, setAskForUsername] = useState(true);
   const [username, setUsername] = useState("");
 
-  const [videos, setVideos] = useState([]); // {socketId, stream}
+  // remoteStreams: [{ socketId, camStream, screenStream, audioStream }]
+  const [remoteStreams, setRemoteStreams] = useState([]);
+  const remoteStreamsRef = useRef([]);
+  useEffect(() => {
+    remoteStreamsRef.current = remoteStreams;
+  }, [remoteStreams]);
+
   const [showModal, setShowModal] = useState(true);
 
-  // UPDATED: message shape contains sender/data/socketId/ts
+  // chat
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState("");
   const [newMessages, setNewMessages] = useState(0);
 
-  // Attach local preview to correct video element
+  // ---------- local preview ----------
   const attachLocalPreview = (stream) => {
     const el = askForUsername ? lobbyVideoRef.current : meetingVideoRef.current;
-    if (el && el.srcObject !== stream) el.srcObject = stream;
+    if (!el) return;
+    el.srcObject = stream || null;
   };
 
   // ---------- init media ----------
@@ -70,13 +79,9 @@ export default function VideoMeetComponent() {
       setScreenAvailable(!!navigator.mediaDevices.getDisplayMedia);
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         cameraStreamRef.current = stream;
 
-        // apply toggles
         const vt = stream.getVideoTracks()[0];
         if (vt) vt.enabled = true;
         const at = stream.getAudioTracks()[0];
@@ -93,43 +98,33 @@ export default function VideoMeetComponent() {
     init();
 
     return () => {
-      try {
-        cameraStreamRef.current?.getTracks()?.forEach((t) => t.stop());
-      } catch {}
-      try {
-        screenStreamRef.current?.getTracks()?.forEach((t) => t.stop());
-      } catch {}
-      try {
-        socketRef.current?.disconnect();
-      } catch {}
-      pcsRef.current.forEach((pc) => {
-        try {
-          pc.close();
-        } catch {}
-      });
+      try { cameraStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
+      try { screenStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
+      try { socketRef.current?.disconnect(); } catch {}
+      pcsRef.current.forEach((pc) => { try { pc.close(); } catch {} });
       pcsRef.current.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ re-attach preview when switching lobby -> meeting
+  // re-attach preview when switching lobby -> meeting
   useEffect(() => {
     const stream = screenOn ? screenStreamRef.current : cameraStreamRef.current;
     if (stream) attachLocalPreview(stream);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askForUsername]);
 
-  // ---------- remote videos ----------
-  const upsertRemoteVideo = (socketId, stream) => {
-    setVideos((prev) => {
+  // ---------- remote helpers ----------
+  const upsertRemoteStream = (socketId, patch) => {
+    setRemoteStreams((prev) => {
       const exists = prev.find((v) => v.socketId === socketId);
-      if (exists) return prev.map((v) => (v.socketId === socketId ? { ...v, stream } : v));
-      return [...prev, { socketId, stream }];
+      if (exists) return prev.map((v) => (v.socketId === socketId ? { ...v, ...patch } : v));
+      return [...prev, { socketId, camStream: null, screenStream: null, audioStream: null, ...patch }];
     });
   };
 
-  const removeRemoteVideo = (socketId) => {
-    setVideos((prev) => prev.filter((v) => v.socketId !== socketId));
+  const removeRemoteStream = (socketId) => {
+    setRemoteStreams((prev) => prev.filter((v) => v.socketId !== socketId));
   };
 
   // ---------- WebRTC ----------
@@ -158,9 +153,34 @@ export default function VideoMeetComponent() {
       }
     };
 
+    // ✅ video classification:
+    // first video track => camera
+    // second video track => screen
     pc.ontrack = (e) => {
-      const stream = e.streams?.[0];
-      if (stream) upsertRemoteVideo(peerId, stream);
+      const track = e.track;
+      if (!track) return;
+
+      if (track.kind === "audio") {
+        upsertRemoteStream(peerId, { audioStream: new MediaStream([track]) });
+        return;
+      }
+
+      if (track.kind === "video") {
+        const videoStream = new MediaStream([track]);
+
+        const existing = remoteStreamsRef.current.find((u) => u.socketId === peerId);
+        const hasCam = !!existing?.camStream;
+        const hasScreen = !!existing?.screenStream;
+
+        const treatAsScreen = hasCam && !hasScreen;
+
+        if (treatAsScreen) {
+          upsertRemoteStream(peerId, { screenStream: videoStream });
+          track.onended = () => upsertRemoteStream(peerId, { screenStream: null });
+        } else {
+          upsertRemoteStream(peerId, { camStream: videoStream });
+        }
+      }
     };
 
     ensureLocalTracksOnPc(pc);
@@ -176,9 +196,38 @@ export default function VideoMeetComponent() {
     socketRef.current.emit("signal", peerId, JSON.stringify({ sdp: pc.localDescription }));
   };
 
+  const renegotiateAll = async () => {
+    for (const [peerId, pc] of pcsRef.current.entries()) {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socketRef.current.emit("signal", peerId, JSON.stringify({ sdp: pc.localDescription }));
+      } catch (e) {
+        console.log("renegotiate error:", e);
+      }
+    }
+  };
+
+  const notifyPeersScreenEvent = (event) => {
+    for (const peerId of pcsRef.current.keys()) {
+      try {
+        socketRef.current.emit("signal", peerId, JSON.stringify({ screenEvent: event }));
+      } catch {}
+    }
+  };
+
   const handleSignal = async (fromId, message) => {
     const signal = JSON.parse(message);
     if (fromId === myIdRef.current) return;
+
+    // ✅ custom screen events
+    if (signal.screenEvent === "stop") {
+      upsertRemoteStream(fromId, { screenStream: null });
+      return;
+    }
+    if (signal.screenEvent === "start") {
+      return;
+    }
 
     const pc = createPc(fromId);
 
@@ -190,6 +239,12 @@ export default function VideoMeetComponent() {
         await pc.setLocalDescription(answer);
         socketRef.current.emit("signal", fromId, JSON.stringify({ sdp: pc.localDescription }));
       }
+
+      // ✅ fallback cleanup: if no second video receiver, clear screen
+      try {
+        const videoReceivers = pc.getReceivers().filter((r) => r.track && r.track.kind === "video");
+        if (videoReceivers.length <= 1) upsertRemoteStream(fromId, { screenStream: null });
+      } catch {}
     }
 
     if (signal.ice) {
@@ -212,43 +267,30 @@ export default function VideoMeetComponent() {
       myIdRef.current = socketRef.current.id;
       socketRef.current.emit("join-call", roomKey);
 
-      // ✅ UPDATED chat listener (store socketId + timestamp)
       socketRef.current.on("chat-message", (data, sender, socketIdSender) => {
-        setMessages((prev) => [
-          ...prev,
-          { sender, data, socketId: socketIdSender, ts: Date.now() },
-        ]);
-
+        setMessages((prev) => [...prev, { sender, data, socketId: socketIdSender, ts: Date.now() }]);
         if (socketIdSender !== myIdRef.current) setNewMessages((n) => n + 1);
       });
 
       socketRef.current.on("user-left", (id) => {
         const pc = pcsRef.current.get(id);
         if (pc) {
-          try {
-            pc.close();
-          } catch {}
+          try { pc.close(); } catch {}
           pcsRef.current.delete(id);
         }
-        removeRemoteVideo(id);
+        removeRemoteStream(id);
       });
 
       socketRef.current.on("user-joined", async (joinedId, clients) => {
-        // create pcs for all
         for (const id of clients) {
           if (id === myIdRef.current) continue;
           createPc(id);
         }
 
-        // only new joiner sends offers
         if (joinedId === myIdRef.current) {
           for (const id of clients) {
             if (id === myIdRef.current) continue;
-            try {
-              await sendOffer(id);
-            } catch (e) {
-              console.log(e);
-            }
+            try { await sendOffer(id); } catch (e) { console.log(e); }
           }
         }
       });
@@ -274,28 +316,36 @@ export default function VideoMeetComponent() {
     setVideoOn(vt.enabled);
   };
 
+  // ✅ screen share: add track (do NOT replace camera)
   const startScreenShare = async () => {
     if (!navigator.mediaDevices.getDisplayMedia) return;
 
     try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false,
-      });
-      screenStreamRef.current = screenStream;
-      setScreenOn(true);
-
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
       const screenTrack = screenStream.getVideoTracks()[0];
       if (!screenTrack) return;
 
-      // replace outgoing video track for each peer
+      // ✅ turn OFF my camera while presenting (Google Meet behavior)
+      const cam = cameraStreamRef.current;
+      const camTrack = cam?.getVideoTracks?.()[0];
+      prevCamEnabledRef.current = !!camTrack?.enabled;
+      if (camTrack) camTrack.enabled = false;
+      setVideoOn(false);
+
+      screenStreamRef.current = screenStream;
+      setScreenOn(true);
+
       pcsRef.current.forEach((pc) => {
-        const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-        if (sender) sender.replaceTrack(screenTrack);
+        const alreadyAdded = pc.getSenders().some((s) => s.track?.id === screenTrack.id);
+        if (!alreadyAdded) pc.addTrack(screenTrack, screenStream);
       });
+
+      notifyPeersScreenEvent("start");
 
       // local preview becomes screen
       attachLocalPreview(screenStream);
+
+      await renegotiateAll();
 
       screenTrack.onended = () => stopScreenShare();
     } catch (e) {
@@ -305,40 +355,34 @@ export default function VideoMeetComponent() {
   };
 
   const stopScreenShare = async () => {
-    try {
-      screenStreamRef.current?.getTracks()?.forEach((t) => t.stop());
-    } catch {}
+    const oldScreenTrack = screenStreamRef.current?.getVideoTracks?.()?.[0] || null;
+
+    try { screenStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
     screenStreamRef.current = null;
     setScreenOn(false);
 
-    let cam = cameraStreamRef.current;
-
-    // if camera ended, reacquire
-    if (!cam || cam.getTracks().every((t) => t.readyState === "ended")) {
-      try {
-        cam = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        cameraStreamRef.current = cam;
-
-        // apply toggles
-        const vt = cam.getVideoTracks()[0];
-        if (vt) vt.enabled = videoOn;
-        const at = cam.getAudioTracks()[0];
-        if (at) at.enabled = audioOn;
-      } catch (e) {
-        console.log("restore cam failed:", e);
-        return;
-      }
-    }
-
-    const camTrack = cam.getVideoTracks()[0];
-    if (!camTrack) return;
-
     pcsRef.current.forEach((pc) => {
-      const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-      if (sender) sender.replaceTrack(camTrack);
+      const sender = pc.getSenders().find((s) => s.track && oldScreenTrack && s.track.id === oldScreenTrack.id);
+      if (sender) {
+        try { pc.removeTrack(sender); } catch {}
+      }
     });
 
-    attachLocalPreview(cam);
+    notifyPeersScreenEvent("stop");
+
+    // ✅ restore my camera state exactly like before presenting
+    const cam = cameraStreamRef.current;
+    const camTrack = cam?.getVideoTracks?.()[0];
+    if (camTrack) camTrack.enabled = !!prevCamEnabledRef.current;
+    setVideoOn(!!prevCamEnabledRef.current);
+
+    // restore local preview to camera (if camera exists)
+    if (cam) {
+      attachLocalPreview(cam);
+      if (meetingVideoRef.current) meetingVideoRef.current.srcObject = cam;
+    }
+
+    await renegotiateAll();
   };
 
   const handleScreen = () => {
@@ -347,21 +391,14 @@ export default function VideoMeetComponent() {
   };
 
   const handleEndCall = () => {
-    try {
-      cameraStreamRef.current?.getTracks()?.forEach((t) => t.stop());
-    } catch {}
-    try {
-      screenStreamRef.current?.getTracks()?.forEach((t) => t.stop());
-    } catch {}
-    try {
-      socketRef.current?.disconnect();
-    } catch {}
+    try { cameraStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
+    try { screenStreamRef.current?.getTracks()?.forEach((t) => t.stop()); } catch {}
+    try { socketRef.current?.disconnect(); } catch {}
     window.location.href = "/";
   };
 
   const connect = () => {
     setAskForUsername(false);
-    // ensure preview is attached to meeting element immediately
     const stream = cameraStreamRef.current;
     if (stream) attachLocalPreview(stream);
     connectToSocketServer();
@@ -372,6 +409,24 @@ export default function VideoMeetComponent() {
     socketRef.current.emit("chat-message", message.trim(), username);
     setMessage("");
   };
+
+  // ---------- PRESENTATION LOGIC (Google Meet style) ----------
+  const remotePresenter = remoteStreams.find((u) => u.screenStream);
+  const isRemotePresenting = !!remotePresenter?.screenStream;
+  const isPresenting = screenOn || isRemotePresenting;
+
+  // stage video: local screen OR remote screen
+  const stageStream = screenOn
+    ? screenStreamRef.current
+    : isRemotePresenting
+    ? remotePresenter.screenStream
+    : null;
+
+  // ✅ PiP should ALWAYS be MY OWN CAMERA when someone else presents
+  // - if I’m presenting: NO PIP
+  // - if someone else presents: show MY camera only if my camera is ON
+  const myCamTrackEnabled = !!cameraStreamRef.current?.getVideoTracks?.()?.[0]?.enabled;
+  const pipStream = screenOn ? null : (myCamTrackEnabled ? cameraStreamRef.current : null);
 
   // ---------- UI ----------
   return (
@@ -403,7 +458,6 @@ export default function VideoMeetComponent() {
         </div>
       ) : (
         <div className={styles.meetVideoContainer}>
-          {/* ✅ NEW CHAT BOX UI */}
           <MeetChatBox
             open={showModal}
             onClose={() => setShowModal(false)}
@@ -414,6 +468,7 @@ export default function VideoMeetComponent() {
             onSend={sendMessage}
           />
 
+          {/* Controls */}
           <div className={styles.buttonContainers}>
             <IconButton onClick={toggleCamera} style={{ color: "white" }}>
               {videoOn ? <VideocamIcon /> : <VideocamOffIcon />}
@@ -434,42 +489,106 @@ export default function VideoMeetComponent() {
             ) : null}
 
             <Badge
-  badgeContent={!showModal ? newMessages : 0}
-  max={999}
-  color="error"
-  overlap="circular"
->
-  <IconButton
-    onClick={() => {
-      setShowModal((m) => {
-        const next = !m;
-        if (next) setNewMessages(0);
-        return next;
-      });
-    }}
-    style={{ color: "white" }}
-  >
-    <ChatIcon />
-  </IconButton>
-</Badge>
+              variant={!showModal && newMessages > 0 ? "dot" : "standard"}
+              badgeContent={!showModal ? newMessages : 0}
+              max={999}
+              color="error"
+              overlap="circular"
+            >
+              <IconButton
+                onClick={() => {
+                  setShowModal((m) => {
+                    const next = !m;
+                    if (next) setNewMessages(0);
+                    return next;
+                  });
+                }}
+                style={{ color: "white" }}
+              >
+                <ChatIcon />
+              </IconButton>
+            </Badge>
           </div>
 
-          <video className={styles.meetUserVideo} ref={meetingVideoRef} autoPlay muted playsInline />
+          {/* PRESENTING MODE */}
+          {isPresenting ? (
+            <div className={styles.stageArea} style={{ paddingRight: showModal ? 400 : 0 }}>
+              <video
+                className={styles.stageVideo}
+                ref={(ref) => {
+                  if (!ref) return;
+                  ref.srcObject = stageStream || null; // clears when stopped
+                }}
+                autoPlay
+                muted
+                playsInline
+              />
 
-          <div className={styles.conferenceView}>
-            {videos.map((v) => (
-              <div key={v.socketId}>
+              {/* ✅ PiP is MY camera only (when remote presents) */}
+              {pipStream ? (
                 <video
-                  data-socket={v.socketId}
+                  className={styles.pipVideo}
                   ref={(ref) => {
-                    if (ref && v.stream) ref.srcObject = v.stream;
+                    if (!ref) return;
+                    ref.srcObject = pipStream || null;
                   }}
                   autoPlay
+                  muted
                   playsInline
                 />
+              ) : null}
+
+              {/* keep remote audio playing */}
+              <div style={{ display: "none" }}>
+                {remoteStreams.map((u) =>
+                  u.audioStream ? (
+                    <audio
+                      key={`aud-${u.socketId}`}
+                      ref={(ref) => {
+                        if (!ref) return;
+                        ref.srcObject = u.audioStream || null;
+                        ref.play?.().catch(() => {});
+                      }}
+                      autoPlay
+                    />
+                  ) : null
+                )}
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <>
+              {/* NORMAL MODE */}
+              <video className={styles.meetUserVideo} ref={meetingVideoRef} autoPlay muted playsInline />
+
+              <div className={styles.conferenceView}>
+                {remoteStreams.map((u) => (
+                  <div key={u.socketId}>
+                    <video
+                      data-socket={u.socketId}
+                      ref={(ref) => {
+                        if (!ref) return;
+                        ref.srcObject = u.camStream || null;
+                      }}
+                      autoPlay
+                      playsInline
+                    />
+
+                    {u.audioStream ? (
+                      <audio
+                        ref={(ref) => {
+                          if (!ref) return;
+                          ref.srcObject = u.audioStream || null;
+                          ref.play?.().catch(() => {});
+                        }}
+                        autoPlay
+                        style={{ display: "none" }}
+                      />
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
